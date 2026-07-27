@@ -10,8 +10,10 @@ const app = express();
 const PORT = process.env.PORT || 7000;
 
 // CORS Proxy middleware
-app.use('/proxy/:url(*)', (req, res, next) => {
-    const targetUrl = req.params.url;
+app.use('/proxy', (req, res, next) => {
+    // In Express, when using app.use('/proxy', ...), req.url contains the path AFTER /proxy
+    // Example: request to /proxy/https://google.com -> req.url is /https://google.com
+    const targetUrl = req.url.substring(1); // remove the leading slash
     
     if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
         return res.status(400).send('Valid absolute URL is required after /proxy/');
