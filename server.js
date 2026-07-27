@@ -57,8 +57,8 @@ app.use('/proxy', (req, res, next) => {
 // Serve static files from Vite build
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// SPA Fallback
-app.get('*', (req, res) => {
+// SPA Fallback (Catch-all)
+app.use((req, res) => {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
