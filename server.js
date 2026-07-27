@@ -33,9 +33,19 @@ const proxy = createProxyMiddleware({
         }
     },
     changeOrigin: true,
+    secure: false, // Bypasses strict SSL checks which often cause ECONNRESET on CDNs
     ws: true,
     on: {
         proxyReq: (proxyReq, req, res) => {
+            // Explicitly set Host header to match SNI
+            try {
+                const targetUrl = req.url.substring(1);
+                if (targetUrl.startsWith('http')) {
+                    const parsed = new URL(targetUrl);
+                    proxyReq.setHeader('Host', parsed.host);
+                }
+            } catch (e) {}
+
             // Strip referer and origin to avoid blocks from strict CDNs
             proxyReq.removeHeader('referer');
             proxyReq.removeHeader('origin');
