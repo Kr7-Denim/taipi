@@ -10,47 +10,72 @@ const app = express();
 const PORT = process.env.PORT || 7000;
 
 // CORS Proxy middleware
+const proxy = createProxyMiddleware({
+    target: 'http://localhost', // Fallback target
+    router: (req) => {
+        try {
+            const targetUrl = req.url.substring(1);
+            if (!targetUrl.startsWith('http')) return null;
+            const parsed = new URL(targetUrl);
+            return parsed.origin;
+        } catch (e) {
+            return null;
+        }
+    },
+    pathRewrite: (path, req) => {
+        try {
+            const targetUrl = path.substring(1);
+            if (!targetUrl.startsWith('http')) return path;
+            const parsed = new URL(targetUrl);
+            return parsed.pathname + parsed.search;
+        } catch (e) {
+            return path;
+        }
+    },
+    changeOrigin: true,
+    ws: true,
+    on: {
+        proxyReq: (proxyReq, req, res) => {
+            // Strip referer and origin to avoid blocks from strict CDNs
+            proxyReq.removeHeader('referer');
+            proxyReq.removeHeader('origin');
+            
+            // Add a common User-Agent if none exists to prevent being blocked by Cloudflare
+            if (!proxyReq.getHeader('user-agent')) {
+                proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+            }
+        },
+        proxyRes: (proxyRes, req, res) => {
+            // Ensure CORS headers are maintained from proxy response
+            proxyRes.headers['Access-Control-Allow-Origin'] = '*';
+            proxyRes.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
+            proxyRes.headers['Access-Control-Allow-Headers'] = '*';
+        },
+        error: (err, req, res) => {
+            console.error('Proxy routing error:', err.message);
+            if (!res.headersSent) {
+                res.status(500).send('Proxy Error');
+            }
+        }
+    }
+});
+
+// Use the proxy middleware
 app.use('/proxy', (req, res, next) => {
-    // In Express, when using app.use('/proxy', ...), req.url contains the path AFTER /proxy
-    // Example: request to /proxy/https://google.com -> req.url is /https://google.com
-    const targetUrl = req.url.substring(1); // remove the leading slash
+    // Handle OPTIONS request for CORS preflight
+    if (req.method === 'OPTIONS') {
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.header('Access-Control-Allow-Headers', '*');
+        return res.sendStatus(200);
+    }
     
+    // Check if valid URL
+    const targetUrl = req.url.substring(1);
     if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
         return res.status(400).send('Valid absolute URL is required after /proxy/');
     }
-
-    // Set CORS headers for the browser
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', '*');
     
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
-
-    const proxy = createProxyMiddleware({
-        target: targetUrl,
-        changeOrigin: true,
-        ignorePath: true, // We are proxying to the exact targetUrl
-        on: {
-            proxyReq: (proxyReq) => {
-                // Strip referer and origin to avoid blocks from streaming CDNs
-                proxyReq.removeHeader('referer');
-                proxyReq.removeHeader('origin');
-            },
-            proxyRes: (proxyRes) => {
-                // Ensure CORS headers are maintained from proxy response
-                proxyRes.headers['Access-Control-Allow-Origin'] = '*';
-            },
-            error: (err, req, res) => {
-                console.error('Proxy error:', err);
-                if (!res.headersSent) {
-                    res.status(500).send('Proxy Error');
-                }
-            }
-        }
-    });
-
     proxy(req, res, next);
 });
 
